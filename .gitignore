@@ -1,0 +1,12 @@
+.env
+*.tar
+*.tar.gz
+*.zip
+images/
+data/
+logs/
+*.log
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

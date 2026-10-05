@@ -1,0 +1,330 @@
+# =============================================================================
+#  SOC HOME LAB — Master Compose File
+#  Services: Wazuh (manager + indexer + dashboard)
+#            Splunk Free + Universal Forwarder
+#            TheHive 5 + Cassandra + Elasticsearch
+#
+#  Base path (bind mounts): ./
+#  Network               : soc-net (172.28.0.0/16)
+#  Total RAM budget      : ~7.3 GB (leave ~700 MB headroom out of 8 GB)
+# =============================================================================
+
+networks:
+  soc-net:
+    name: soc-net
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
+
+volumes:
+  # ── Wazuh ──────────────────────────────────────────────────────────────────
+  wazuh-manager-api-config:
+  wazuh-manager-etc:
+  wazuh-manager-logs:
+  wazuh-manager-queue:
+  wazuh-manager-var-multigroups:
+  wazuh-manager-integrations:
+  wazuh-manager-active-response:
+  wazuh-manager-agentless:
+  wazuh-manager-wodles:
+  wazuh-manager-filebeat-etc:
+  wazuh-manager-filebeat-var:
+  wazuh-indexer-data:
+  wazuh-dashboard-config:
+  wazuh-dashboard-custom:
+  # ── Splunk ─────────────────────────────────────────────────────────────────
+  splunk-data:
+  splunk-etc:
+  splunk-forwarder-data:
+  # ── TheHive stack ──────────────────────────────────────────────────────────
+  cassandra-data:
+  elasticsearch-thehive-data:
+  thehive-data:
+  thehive-logs:
+
+services:
+
+# =============================================================================
+#  WAZUH
+# =============================================================================
+
+  # ---------------------------------------------------------------------------
+  #  Wazuh Indexer (OpenSearch)
+  # ---------------------------------------------------------------------------
+  wazuh.indexer:
+    image: wazuh/wazuh-indexer:4.9.2
+    container_name: wazuh-indexer
+    hostname: wazuh.indexer
+    restart: unless-stopped
+    networks:
+      soc-net:
+        ipv4_address: 172.28.0.10
+    ports:
+      - "9200:9200"
+    environment:
+      - "OPENSEARCH_JAVA_OPTS=-Xms768m -Xmx768m"
+      - bootstrap.memory_lock=true
+      - network.host=0.0.0.0
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+    volumes:
+      - wazuh-indexer-data:/var/lib/wazuh-indexer
+      - ./wazuh/config/indexer/certs:/etc/wazuh-indexer/certs:ro
+    mem_limit: 1536m
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sk https://localhost:9200 -u admin:admin | grep -q 'wazuh-cluster'"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # ---------------------------------------------------------------------------
+  #  Wazuh Manager
+  # ---------------------------------------------------------------------------
+  wazuh.manager:
+    image: wazuh/wazuh-manager:4.9.2
+    container_name: wazuh-manager
+    hostname: wazuh.manager
+    restart: unless-stopped
+    networks:
+      soc-net:
+        ipv4_address: 172.28.0.11
+    ports:
+      - "1514:1514/udp"   # agent syslog
+      - "1514:1514/tcp"
+      - "1515:1515"       # agent enrollment
+      - "514:514/udp"     # syslog from external sources
+      - "55000:55000"     # REST API
+    environment:
+      - INDEXER_URL=https://wazuh.indexer:9200
+      - INDEXER_USERNAME=admin
+      - INDEXER_PASSWORD=admin
+      - FILEBEAT_SSL_VERIFICATION_MODE=full
+      - SSL_CERTIFICATE_AUTHORITIES=/etc/ssl/root-ca.pem
+      - SSL_CERTIFICATE=/etc/ssl/filebeat.pem
+      - SSL_KEY=/etc/ssl/filebeat-key.pem
+      - API_USERNAME=wazuh-wui
+      - API_PASSWORD=LabOnly-Wazuh-2026!
+    volumes:
+      - wazuh-manager-api-config:/var/ossec/api/configuration
+      - wazuh-manager-etc:/var/ossec/etc
+      - wazuh-manager-logs:/var/ossec/logs
+      - wazuh-manager-queue:/var/ossec/queue
+      - wazuh-manager-var-multigroups:/var/ossec/var/multigroups
+      - wazuh-manager-integrations:/var/ossec/integrations
+      - wazuh-manager-active-response:/var/ossec/active-response/bin
+      - wazuh-manager-agentless:/var/ossec/agentless
+      - wazuh-manager-wodles:/var/ossec/wodles
+      - wazuh-manager-filebeat-etc:/etc/filebeat
+      - wazuh-manager-filebeat-var:/var/lib/filebeat
+      - ./wazuh/config/manager/ossec.conf:/var/ossec/etc/ossec.conf:ro
+      - ./wazuh/config/manager/certs/root-ca-manager.pem:/etc/ssl/root-ca.pem:ro
+      - ./wazuh/config/manager/certs/filebeat.pem:/etc/ssl/filebeat.pem:ro
+      - ./wazuh/config/manager/certs/filebeat-key.pem:/etc/ssl/filebeat-key.pem:ro
+      # TheHive integration script (see TheHive integration section below)
+      - ./wazuh/config/manager/integrations/custom-thehive:/var/ossec/integrations/custom-thehive:ro
+    mem_limit: 1024m
+    depends_on:
+      wazuh.indexer:
+        condition: service_healthy
+
+  # ---------------------------------------------------------------------------
+  #  Wazuh Dashboard (Kibana-based)
+  # ---------------------------------------------------------------------------
+  wazuh.dashboard:
+    image: wazuh/wazuh-dashboard:4.9.2
+    container_name: wazuh-dashboard
+    hostname: wazuh.dashboard
+    restart: unless-stopped
+    networks:
+      soc-net:
+        ipv4_address: 172.28.0.12
+    ports:
+      - "443:5601"
+    environment:
+      - INDEXER_USERNAME=admin
+      - INDEXER_PASSWORD=admin
+      - WAZUH_API_URL=https://wazuh.manager
+      - DASHBOARD_USERNAME=kibanaserver
+      - DASHBOARD_PASSWORD=kibanaserver
+      - API_USERNAME=wazuh-wui
+      - API_PASSWORD=LabOnly-Wazuh-2026!
+    volumes:
+      - wazuh-dashboard-config:/usr/share/wazuh-dashboard/data/wazuh/config
+      - wazuh-dashboard-custom:/usr/share/wazuh-dashboard/plugins/wazuh/public/assets/custom
+      - ./wazuh/config/dashboard/opensearch_dashboards.yml:/usr/share/wazuh-dashboard/config/opensearch_dashboards.yml:ro
+      - ./wazuh/config/dashboard/certs/dashboard.pem:/usr/share/wazuh-dashboard/certs/wazuh-dashboard.pem:ro
+      - ./wazuh/config/dashboard/certs/dashboard-key.pem:/usr/share/wazuh-dashboard/certs/wazuh-dashboard-key.pem:ro
+      - ./wazuh/config/dashboard/certs/root-ca.pem:/usr/share/wazuh-dashboard/certs/root-ca.pem:ro
+    mem_limit: 512m
+    depends_on:
+      - wazuh.manager
+
+# =============================================================================
+#  SPLUNK FREE
+# =============================================================================
+
+  splunk:
+    image: splunk/splunk:10.4.3
+    container_name: splunk
+    hostname: splunk
+    restart: unless-stopped
+    networks:
+      soc-net:
+        ipv4_address: 172.28.0.20
+    ports:
+      - "8000:8000"   # Web UI
+      - "8088:8088"   # HTTP Event Collector (HEC)
+      - "8089:8089"   # Management/REST API
+      - "9997:9997"   # Receiving port for forwarders
+    environment:
+      - SPLUNK_START_ARGS=--accept-license
+      - SPLUNK_GENERAL_TERMS=--accept-sgt-current-at-splunk-com
+      - SPLUNK_LICENSE_URI=Free
+      - SPLUNK_PASSWORD=LabOnly-Splunk-2026!   # ← change this
+    volumes:
+      - splunk-etc:/opt/splunk/etc
+      - splunk-data:/opt/splunk/var
+    mem_limit: 1536m
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 120s
+
+  # ---------------------------------------------------------------------------
+  #  Splunk Universal Forwarder
+  #  Forwards Wazuh manager logs → Splunk
+  # ---------------------------------------------------------------------------
+  splunk-forwarder:
+    image: splunk/universalforwarder:10.4.3
+    container_name: splunk-forwarder
+    hostname: splunk-forwarder
+    restart: unless-stopped
+    networks:
+      soc-net:
+        ipv4_address: 172.28.0.21
+    environment:
+      - SPLUNK_START_ARGS=--accept-license
+      - SPLUNK_GENERAL_TERMS=--accept-sgt-current-at-splunk-com
+      - SPLUNK_PASSWORD=LabOnly-Splunk-2026!
+      - SPLUNK_FORWARD_SERVER=splunk:9997
+      - SPLUNK_ADD=monitor:///var/ossec/logs/alerts/alerts.json -index wazuh -sourcetype wazuh-alerts
+    volumes:
+      - wazuh-manager-logs:/var/ossec/logs:ro
+      - splunk-forwarder-data:/opt/splunkforwarder/var
+    mem_limit: 256m
+    depends_on:
+      splunk:
+        condition: service_healthy
+# =============================================================================
+#  THEHIVE STACK
+# =============================================================================
+
+  # ---------------------------------------------------------------------------
+  #  Cassandra — TheHive primary database
+  # ---------------------------------------------------------------------------
+  cassandra:
+    image: cassandra:4.1
+    container_name: cassandra
+    hostname: cassandra
+    restart: unless-stopped
+    networks:
+      soc-net:
+        ipv4_address: 172.28.0.30
+    ports:
+      - "9042:9042"
+    environment:
+      - CASSANDRA_CLUSTER_NAME=thehive-cluster
+      - CASSANDRA_DC=dc1
+      - CASSANDRA_ENDPOINT_SNITCH=GossipingPropertyFileSnitch
+      - HEAP_NEWSIZE=128M
+      - MAX_HEAP_SIZE=512M         # ← tuned down for 8 GB lab
+      - CASSANDRA_START_RPC=false
+    volumes:
+      - cassandra-data:/var/lib/cassandra
+    mem_limit: 1024m
+    healthcheck:
+      test: ["CMD", "cqlsh", "-e", "describe keyspaces"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
+
+  # ---------------------------------------------------------------------------
+  #  Elasticsearch — TheHive search/index backend
+  #  (separate from Wazuh's OpenSearch to avoid conflicts)
+  # ---------------------------------------------------------------------------
+  elasticsearch-thehive:
+    image: docker.elastic.co/elasticsearch/elasticsearch:7.17.24
+    container_name: elasticsearch-thehive
+    hostname: elasticsearch-thehive
+    restart: unless-stopped
+    networks:
+      soc-net:
+        ipv4_address: 172.28.0.31
+    ports:
+      - "9201:9200"    # offset by 1 to avoid clash with Wazuh indexer on 9200
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - "ES_JAVA_OPTS=-Xms256m -Xmx256m"   # tuned for lab
+      - bootstrap.memory_lock=true
+      - cluster.name=thehive-es
+      - http.host=0.0.0.0
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+    volumes:
+      - elasticsearch-thehive-data:/usr/share/elasticsearch/data
+    mem_limit: 512m
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9200/_cluster/health | grep -qE '\"status\":\"(green|yellow)\"'"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
+
+  # ---------------------------------------------------------------------------
+  #  TheHive 5
+  # ---------------------------------------------------------------------------
+  thehive:
+    image: strangebee/thehive:5.4
+    container_name: thehive
+    hostname: thehive
+    restart: unless-stopped
+    networks:
+      soc-net:
+        ipv4_address: 172.28.0.32
+    ports:
+      - "9000:9000"
+    environment:
+      - JVM_OPTS=-Xms768m -Xmx1200m
+      - TH_SECRET=lab-only-thehive-secret-2026-public-demo-rotate-for-real-use
+      - TH_CQL_HOSTNAMES=cassandra
+      - TH_CQL_DATACENTER=dc1
+      - TH_CQL_KEYSPACE=thehive
+      - TH_INDEX_BACKEND=elasticsearch
+      - TH_ELASTICSEARCH_HOSTNAMES=172.28.0.31
+      - TH_ELASTICSEARCH_INDEX=thehive
+      - TH_NO_CONFIG_CORTEX=1
+      - TH_STORAGE_DIRECTORY=/opt/thp/thehive/data
+    volumes:
+      - thehive-data:/opt/thp/thehive/data
+      - thehive-logs:/opt/thp/thehive/logs
+    mem_limit: 1400m
+    depends_on:
+      cassandra:
+        condition: service_healthy
+      elasticsearch-thehive:
+        condition: service_healthy

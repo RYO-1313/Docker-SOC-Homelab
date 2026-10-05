@@ -1,0 +1,82 @@
+#!/usr/bin/env python3
+# =============================================================================
+#  Wazuh → TheHive 5 Integration Script (no external dependencies)
+#  Uses only Python stdlib (urllib)
+# =============================================================================
+
+import sys
+import json
+import urllib.request
+import urllib.error
+from datetime import datetime
+
+alert_file = open(sys.argv[1])
+api_key    = sys.argv[2]
+hook_url   = sys.argv[3]
+
+alert_json = json.loads(alert_file.read())
+alert_file.close()
+
+rule   = alert_json.get("rule", {})
+agent  = alert_json.get("agent", {})
+full_log = alert_json.get("full_log", "")
+timestamp = alert_json.get("timestamp", datetime.utcnow().isoformat())
+severity = rule.get("level", 1)
+
+def map_severity(level):
+    if level >= 12: return 4
+    if level >= 8:  return 3
+    if level >= 4:  return 2
+    return 1
+
+thehive_alert = {
+    "type":      "wazuh",
+    "source":    "wazuh-manager",
+    "sourceRef": alert_json.get("id", "N/A"),
+    "title":     f"Wazuh Alert [{rule.get('level','?')}]: {rule.get('description','No description')}",
+    "description": (
+        f"**Agent:** {agent.get('name','N/A')} ({agent.get('ip','N/A')})\n\n"
+        f"**Rule:** {rule.get('id','N/A')} — {rule.get('description','')}\n\n"
+        f"**Groups:** {', '.join(rule.get('groups', []))}\n\n"
+        f"**Timestamp:** {timestamp}\n\n"
+        f"**Full log:**\n```\n{full_log}\n```"
+    ),
+    "severity":  map_severity(severity),
+    "date":      int(datetime.utcnow().timestamp() * 1000),
+    "tags":      rule.get("groups", []) + ["wazuh"],
+    "tlp":       2,
+    "pap":       2,
+    "observables": [],
+}
+
+src_ip = alert_json.get("data", {}).get("srcip") or alert_json.get("data", {}).get("src_ip")
+if src_ip:
+    thehive_alert["observables"].append({
+        "dataType": "ip",
+        "data":     src_ip,
+        "message":  "Source IP from Wazuh alert",
+        "tags":     ["src"],
+    })
+
+payload = json.dumps(thehive_alert).encode("utf-8")
+req = urllib.request.Request(
+    f"{hook_url}/api/v1/alert",
+    data=payload,
+    headers={
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type":  "application/json",
+    },
+    method="POST",
+)
+
+try:
+    with urllib.request.urlopen(req, timeout=10) as resp:
+        resp.read()
+except urllib.error.HTTPError as e:
+    print(f"ERROR HTTPError {e.code}: {e.read()}", file=sys.stderr)
+    sys.exit(1)
+except urllib.error.URLError as e:
+    print(f"ERROR URLError: {e.reason}", file=sys.stderr)
+    sys.exit(1)
+
+sys.exit(0)
