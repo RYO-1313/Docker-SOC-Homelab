@@ -69,14 +69,19 @@ and increase Docker Desktop memory if necessary.
 | 9200/tcp | Wazuh Indexer |
 | 9201/tcp | TheHive Elasticsearch |
 
-For a lab that should only be reachable from the same machine, consider binding host ports to
-`127.0.0.1` instead of all interfaces.
+The web UIs, APIs, databases, and data ports are bound to `127.0.0.1` by default. Wazuh agent
+ports `1514/tcp+udp` and enrollment port `1515/tcp` remain available on the host for optional
+remote lab agents. Do not expose the remaining services directly to the Internet.
 
 ## Credentials and TLS Material
 
-This public learning version uses **disposable lab-only credentials** and includes TLS material
-needed to make the stack self-contained.
+Credentials are supplied through a local `.env` file. Start by copying `.env.example` to `.env` and
+fill in `WAZUH_API_PASSWORD`, `SPLUNK_PASSWORD`, and `THEHIVE_SECRET`. The `THEHIVE_API_KEY` value
+is used by the Wazuh-to-TheHive integration; for a first boot it may be left as the placeholder,
+then replaced with a real API key created in TheHive. The installer regenerates
+`wazuh/config/manager/ossec.conf.generated` from the template and `.env`.
 
+The repository also includes disposable lab TLS material needed to make the stack self-contained.
 Do not:
 
 - reuse these credentials elsewhere;

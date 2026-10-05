@@ -61,7 +61,7 @@ services:
       soc-net:
         ipv4_address: 172.28.0.10
     ports:
-      - "9200:9200"
+      - "127.0.0.1:9200:9200"
     environment:
       - "OPENSEARCH_JAVA_OPTS=-Xms768m -Xmx768m"
       - bootstrap.memory_lock=true
@@ -98,8 +98,8 @@ services:
       - "1514:1514/udp"   # agent syslog
       - "1514:1514/tcp"
       - "1515:1515"       # agent enrollment
-      - "514:514/udp"     # syslog from external sources
-      - "55000:55000"     # REST API
+      - "127.0.0.1:514:514/udp"     # syslog from external sources
+      - "127.0.0.1:55000:55000"     # REST API
     environment:
       - INDEXER_URL=https://wazuh.indexer:9200
       - INDEXER_USERNAME=admin
@@ -109,7 +109,7 @@ services:
       - SSL_CERTIFICATE=/etc/ssl/filebeat.pem
       - SSL_KEY=/etc/ssl/filebeat-key.pem
       - API_USERNAME=wazuh-wui
-      - API_PASSWORD=LabOnly-Wazuh-2026!
+      - API_PASSWORD=${WAZUH_API_PASSWORD:?Set WAZUH_API_PASSWORD in .env}
     volumes:
       - wazuh-manager-api-config:/var/ossec/api/configuration
       - wazuh-manager-etc:/var/ossec/etc
@@ -122,7 +122,7 @@ services:
       - wazuh-manager-wodles:/var/ossec/wodles
       - wazuh-manager-filebeat-etc:/etc/filebeat
       - wazuh-manager-filebeat-var:/var/lib/filebeat
-      - ./wazuh/config/manager/ossec.conf:/var/ossec/etc/ossec.conf:ro
+      - ./wazuh/config/manager/ossec.conf.generated:/var/ossec/etc/ossec.conf:ro
       - ./wazuh/config/manager/certs/root-ca-manager.pem:/etc/ssl/root-ca.pem:ro
       - ./wazuh/config/manager/certs/filebeat.pem:/etc/ssl/filebeat.pem:ro
       - ./wazuh/config/manager/certs/filebeat-key.pem:/etc/ssl/filebeat-key.pem:ro
@@ -145,7 +145,7 @@ services:
       soc-net:
         ipv4_address: 172.28.0.12
     ports:
-      - "443:5601"
+      - "127.0.0.1:443:5601"
     environment:
       - INDEXER_USERNAME=admin
       - INDEXER_PASSWORD=admin
@@ -153,7 +153,7 @@ services:
       - DASHBOARD_USERNAME=kibanaserver
       - DASHBOARD_PASSWORD=kibanaserver
       - API_USERNAME=wazuh-wui
-      - API_PASSWORD=LabOnly-Wazuh-2026!
+      - API_PASSWORD=${WAZUH_API_PASSWORD:?Set WAZUH_API_PASSWORD in .env}
     volumes:
       - wazuh-dashboard-config:/usr/share/wazuh-dashboard/data/wazuh/config
       - wazuh-dashboard-custom:/usr/share/wazuh-dashboard/plugins/wazuh/public/assets/custom
@@ -178,15 +178,15 @@ services:
       soc-net:
         ipv4_address: 172.28.0.20
     ports:
-      - "8000:8000"   # Web UI
-      - "8088:8088"   # HTTP Event Collector (HEC)
-      - "8089:8089"   # Management/REST API
-      - "9997:9997"   # Receiving port for forwarders
+      - "127.0.0.1:8000:8000"   # Web UI
+      - "127.0.0.1:8088:8088"   # HTTP Event Collector (HEC)
+      - "127.0.0.1:8089:8089"   # Management/REST API
+      - "127.0.0.1:9997:9997"   # Receiving port for forwarders
     environment:
       - SPLUNK_START_ARGS=--accept-license
       - SPLUNK_GENERAL_TERMS=--accept-sgt-current-at-splunk-com
       - SPLUNK_LICENSE_URI=Free
-      - SPLUNK_PASSWORD=LabOnly-Splunk-2026!   # ← change this
+      - SPLUNK_PASSWORD=${SPLUNK_PASSWORD:?Set SPLUNK_PASSWORD in .env}
     volumes:
       - splunk-etc:/opt/splunk/etc
       - splunk-data:/opt/splunk/var
@@ -213,7 +213,7 @@ services:
     environment:
       - SPLUNK_START_ARGS=--accept-license
       - SPLUNK_GENERAL_TERMS=--accept-sgt-current-at-splunk-com
-      - SPLUNK_PASSWORD=LabOnly-Splunk-2026!
+      - SPLUNK_PASSWORD=${SPLUNK_PASSWORD:?Set SPLUNK_PASSWORD in .env}
       - SPLUNK_FORWARD_SERVER=splunk:9997
       - SPLUNK_ADD=monitor:///var/ossec/logs/alerts/alerts.json -index wazuh -sourcetype wazuh-alerts
     volumes:
@@ -239,7 +239,7 @@ services:
       soc-net:
         ipv4_address: 172.28.0.30
     ports:
-      - "9042:9042"
+      - "127.0.0.1:9042:9042"
     environment:
       - CASSANDRA_CLUSTER_NAME=thehive-cluster
       - CASSANDRA_DC=dc1
@@ -270,7 +270,7 @@ services:
       soc-net:
         ipv4_address: 172.28.0.31
     ports:
-      - "9201:9200"    # offset by 1 to avoid clash with Wazuh indexer on 9200
+      - "127.0.0.1:9201:9200"    # offset by 1 to avoid clash with Wazuh indexer on 9200
     environment:
       - discovery.type=single-node
       - xpack.security.enabled=false
@@ -307,10 +307,10 @@ services:
       soc-net:
         ipv4_address: 172.28.0.32
     ports:
-      - "9000:9000"
+      - "127.0.0.1:9000:9000"
     environment:
       - JVM_OPTS=-Xms768m -Xmx1200m
-      - TH_SECRET=lab-only-thehive-secret-2026-public-demo-rotate-for-real-use
+      - TH_SECRET=${THEHIVE_SECRET:?Set THEHIVE_SECRET in .env}
       - TH_CQL_HOSTNAMES=cassandra
       - TH_CQL_DATACENTER=dc1
       - TH_CQL_KEYSPACE=thehive

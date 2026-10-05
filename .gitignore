@@ -10,3 +10,6 @@ logs/
 Thumbs.db
 .vscode/
 .idea/
+
+# Generated from .env during installation
+wazuh/config/manager/ossec.conf.generated
